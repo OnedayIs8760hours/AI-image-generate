@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 from app.agents.contracts import StrictModel
 from app.agents.creative_strategy import CreativeStrategy,CreativeStrategyV2,ModuleNarrative,validate_mapping
-from app.agents.amazon_contracts import APlusPlan, APlusModule, Evidence, MarketInsight,ArtDirection,ImageSlot,DesignPrinciple,RuleApplication,VisualExecution
+from app.agents.amazon_contracts import APlusPlan, APlusModule, Evidence, MarketInsight,ArtDirection,ImageSlot,DesignPrinciple,NativeCopyStyle,RuleApplication,VisualExecution
 
 VERSION='amazon-design-decisions-v1'
 
@@ -33,6 +33,7 @@ class ModuleDecision(StrictModel):
     copy_space:Literal['left','right','top','bottom','none']='right'
     headline:str=Field(default='',max_length=80)
     body:str=Field(default='',max_length=300)
+    copy_style:NativeCopyStyle|None=None
     reference_asset_ids:list[str]|None=Field(default=None,min_length=1,max_length=10,
         description='Only if this module needs different references; otherwise inherit the shared list.')
     requested_width:int|None=Field(default=None,ge=256,le=4096)
@@ -192,7 +193,7 @@ def expand(brief:DesignBrief, *, collected_at=None):
             user_need=('；'.join(r.consumer_benefit for r in brief.creative_strategy.purchase_reasons if m.narrative and r.id in m.narrative.reason_ids) if brief.creative_strategy else m.main_point),evidence_ids=module_evidence,composition=m.composition,
             image_prompt=professional_prompts.module_decision(m),
             reference_asset_ids=m.reference_asset_ids or brief.reference_asset_ids,
-            headline=m.headline,body=m.body,desktop_layout=desktop,
+            headline=m.headline,body=m.body,copy_style=m.copy_style,desktop_layout=desktop,
             mobile_layout='保留商品、Logo和主要图案完整可见；文字单独排版，移动端按主体安全区审核。',
             acceptance=amazon.rules()['manual_checks'],design_direction=m.design_direction,
             requested_width=m.requested_width,requested_height=m.requested_height,

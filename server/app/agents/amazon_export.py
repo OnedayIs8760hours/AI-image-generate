@@ -3,12 +3,14 @@ import html
 import io
 import json
 import re
+from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from PIL import Image
 from app.agents import amazon
 from app.agents.adapters import chat
+from app.agents.amazon_contracts import APlusModule, NativeCopyStyle
 from app.core.errors import AppError
 from app.models.tasks import Job
 from app.services.asset_service import read_asset_content
@@ -54,22 +56,32 @@ async def manifest(db, conv, plan_id):
     source_pairs={(o['module_id'],o['slot_id']) for o in source_crops}
     expected={(m.id,s['id']) for m in plan.modules for s in slots(plan,m)}
     latest_jobs={}
+    submitted_signatures={}
     for submission in row.metadata_json.get('submissions',[]):
         jids=submission.get('job_ids',[])
         for mid,jid,sid in zip(submission.get('module_ids',[]),jids,submission.get('slot_ids') or ['main']*len(jids)):
             latest_jobs[(mid,sid)]=jid
+            sigs=submission.get('module_signatures',{})
+            submitted_signatures[jid]=sigs.get(mid+'::'+sid,sigs.get(mid))
     states=[]
     for (mid,sid),jid in latest_jobs.items():
         job=await db.get(Job,jid)
         states.append({'module_id':mid,'slot_id':sid,'job_id':jid,'status':job.status if job else 'missing',
             'error_code':job.error_code if job else 'job_missing'})
-    from app.agents.amazon_contracts import APlusModule
     stale=[]
     for module in plan.modules:
         for slot in slots(plan,module):
             versions=[o for o in selected if o['module_id']==module.id and o['slot_id']==slot['id']]
             latest=max(versions,key=lambda o:o['version']) if versions else None
-            if not slot['direction'].source_crop and latest and latest.get('module_snapshot') and APlusModule.model_validate(latest['module_snapshot'])!=module:
+            if slot['direction'].source_crop or not latest or not latest.get('module_snapshot'):
+                continue
+            signature=submitted_signatures.get(latest['job_id'])
+            if signature and row.metadata_json.get('controller')=='dsh-native':
+                current=signature in {amazon.slot_signature(plan,module,slot),amazon.module_signature(plan,module)}
+            else:
+                snapshot=APlusModule.model_validate(latest['module_snapshot'])
+                current=snapshot.model_dump(exclude={'copy_style'})==module.model_dump(exclude={'copy_style'})
+            if not current:
                 stale.append(module.id);break
     return {'brief':amazon.response(row), 'outputs':selected,'source_crops':source_crops, 'publish_ready':False,
         'modules_without_output':sorted({mid for mid,sid in expected-source_pairs-{(o['module_id'],o['slot_id']) for o in selected}}),
@@ -97,6 +109,7 @@ def preview_html(data):
         theme=f"background:{color('canvas_color','#ffffff')};color:{color('ink_color','#17202a')};border-color:{color('accent_color','#e7e5e4')};font-family:{fonts.get(concept.get('native_type_style'),'Arial, sans-serif')}"
     for module in data['brief']['plan']['modules']:
         spec=specs.get(module['id']) or {};layout=spec.get('layout','header')
+        design=NativeCopyStyle.model_validate(module['copy_style']) if module.get('copy_style') else None
         authored={s['id']:s for s in module.get('image_slots',[])}
         slots=spec.get('slots') or [{'id':'main'}]
         pictures=[]
@@ -104,22 +117,40 @@ def preview_html(data):
             result=latest.get((module['id'],slot['id']));copy=authored.get(slot['id'],{})
             image=f'<img src="{esc(result["archive_path"])}" alt="{esc(module["title"])} · {esc(slot["id"])}">' if result else f'<p class="missing">槽位 {esc(slot["id"])} 尚无结果</p>'
             pictures.append((slot['id'],image,copy))
-        text=f'<div class="copy"><h2>{esc(module["headline"])}</h2><p>{esc(module["body"])}</p></div>'
+        heading=f'<h2 class="aplus-copy-title">{esc(module["headline"])}</h2>' if module['headline'] else ''
+        body=f'<p class="aplus-copy-body">{esc(module["body"])}</p>' if module['body'] else ''
+        side_class=' aplus-copy-side' if layout in {'image_left','image_right'} else ''
+        text=f'<div class="copy aplus-copy{side_class}">{heading}{body}</div>'
         if layout in {'image_left','image_right'}:
             content=f'<div class="side {layout}"><div>{pictures[0][1]}</div>{text}</div>'
         elif layout in {'three_columns','four_columns','sidebar'}:
-            cells=''.join(f'<div>{image}<h3>{esc(copy.get("headline"))}</h3><p>{esc(copy.get("body"))}</p></div>' for sid,image,copy in pictures)
-            content=f'<h2 class="module-title">{esc(module["headline"])}</h2><div class="tiles {layout}">{cells}</div>'
+            cells=[]
+            for _,image,copy in pictures:
+                label=f'<h4>{esc(copy["headline"])}</h4>' if copy.get('headline') else ''
+                note=f'<p>{esc(copy["body"])}</p>' if copy.get('body') else ''
+                caption=f'<div class="aplus-caption">{label}{note}</div>' if label or note else ''
+                cells.append(f'<div>{image}{caption}</div>')
+            title=text if design else f'<h2 class="module-title">{esc(module["headline"])}</h2>'
+            content=f'{title}<div class="tiles {layout}">{"".join(cells)}</div>'
+            if not design and module['body']:
+                content+=f'<p class="module-note">{esc(module["body"])}</p>'
         elif layout=='overlay':
-            content=f'<div class="overlay">{pictures[0][1]}{text}</div>'
+            content=f'<div class="aplus-overlay"><div>{pictures[0][1]}</div><div class="aplus-overlay-copy">{text}</div></div>'
         else:content=pictures[0][1]+text
-        sections.append(f'<section data-module="{esc(module["id"])}" data-layout="{esc(layout)}" style="{esc(theme)}">{content}</section>')
+        attributes=''
+        module_theme=theme
+        if design:
+            attributes=' '.join(f'data-copy-{name}="{value}"' for name,value in design.model_dump(exclude={'color'}).items())
+            module_theme=f'{theme};--aplus-copy-color:{design.color}'
+        sections.append(f'<section class="aplus-module" data-module="{esc(module["id"])}" data-layout="{esc(layout)}" {attributes} style="{esc(module_theme)}">{content}</section>')
+    copy_css=Path(__file__).with_name('aplus_preview.css').read_text(encoding='utf-8')
     return '''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'">
 <title>A+ module handoff preview</title><style>
 body{margin:0;background:#f6f7f9;color:#17202a;font:16px/1.6 system-ui}main{max-width:970px;margin:auto;padding:20px}section{background:white;margin:20px 0;overflow:hidden;border:1px solid #e7e5e4}img{display:block;width:100%;height:auto}.copy{padding:24px;overflow-wrap:anywhere;white-space:pre-wrap}h2{font-size:26px;line-height:1.25;margin:0}h3{font-size:19px}.side{display:grid;grid-template-columns:1fr 1fr;align-items:center}.image_right .copy{grid-column:1;grid-row:1}.image_right>div:first-child{grid-column:2}.tiles{display:grid;gap:20px;padding:24px;overflow-wrap:anywhere}.three_columns{grid-template-columns:repeat(3,minmax(0,1fr))}.four_columns{grid-template-columns:repeat(4,minmax(0,1fr))}.sidebar{grid-template-columns:2fr 1fr}.module-title{padding:24px 24px 0}.overlay{position:relative}.overlay .copy{position:absolute;right:0;top:0;bottom:0;width:36%;display:flex;flex-direction:column;justify-content:center;background:#ffffffdd}.missing{padding:50px;background:#f2f2f2;text-align:center}aside{padding:16px;background:#fff3d6}
 @media(max-width:600px){main{padding:8px}.side,.tiles{grid-template-columns:1fr}.image_right .copy,.image_right>div:first-child{grid-column:auto;grid-row:auto}.copy,.tiles{padding:16px}.overlay .copy{position:static;width:auto}h2{font-size:22px}}
-</style><main><aside>本平台模块组合审核预览，非 Seller Central 实际渲染或发布文件。独立图片和原生文案分离交付；最终账号权限和展示需运营核对。</aside>'''+''.join(sections)+'</main></html>'
+.module-note{margin:0;padding:0 24px 24px}
+'''+copy_css+'''</style><main><aside>本平台模块组合审核预览，非 Seller Central 实际渲染或发布文件。独立图片和原生文案分离交付；最终账号权限和展示需运营核对。</aside>'''+''.join(sections)+'</main></html>'
 
 
 async def archive(db, storage, conv, plan_id):
@@ -159,6 +190,7 @@ async def archive(db, storage, conv, plan_id):
             z.writestr('manifest.json',json.dumps(data,ensure_ascii=False,indent=2))
             z.writestr('preview.html',preview_html(data))
             z.writestr('copy.json',json.dumps([{'module_id':m['id'],'headline':m['headline'],'body':m['body'],
+                'copy_style':m.get('copy_style'),
                 'desktop_layout':m['desktop_layout'],'mobile_layout':m['mobile_layout'],'image_slots':m.get('image_slots',[]),
                 'copy_source':'current_draft_not_historical_output', 'rules_version':data['brief']['plan']['rules_version'],
                 'seller_central_mapping':amazon.rules()['modules'].get(m['spec_id'],{}).get('native_text_fields')

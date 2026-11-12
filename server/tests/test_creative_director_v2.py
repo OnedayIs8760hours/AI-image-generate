@@ -6,6 +6,7 @@ from PIL import Image
 from pydantic import ValidationError
 from app.agents.amazon_brief import SaveDirectorAPlusV2,normalize_arguments
 from app.agents.amazon_contracts import APlusPlan,SourceCrop
+from app.agents.amazon_export import preview_html
 from app.agents.professional_prompts import aplus
 from app.agents.aplus_design import slots
 from app.agents.aplus_first_pass import SaveFirstPass, compile_first_pass
@@ -89,6 +90,7 @@ def test_first_pass_preserves_english_direction_and_moves_weak_reason_to_support
         'modules': [{
             'spec_id': 'basic_single_image_right', 'purpose': 'Close with the garment at rest.',
             'reasons': ['color', 'shape'], 'headline': 'Back Home',
+            'copy_style': {'font': 'editorial_serif', 'scale': 'display', 'tone': 'dark', 'color': '#103653'},
             'shots': [{'framing': frame, 'light': 'Warm side light', 'focus': 'Hands follow the navy-to-teal fold.',
                        'variation': 'An at-rest gesture replaces a repeated full product view.'}],
         }],
@@ -99,7 +101,34 @@ def test_first_pass_preserves_english_direction_and_moves_weak_reason_to_support
     assert module.narrative.reason_ids == ['color']
     assert module.evidence_ids == ['fade', 'pouch']
     assert plan.creative_strategy.purchase_reasons[1].presentation == 'internal_only'
+    assert module.copy_style.tone == 'dark'
+    assert module.copy_style.color not in aplus(plan, module, slot=slot)
     assert frame in aplus(plan, module, slot=slot)
+
+
+def test_copy_edit_keeps_image_receipt_and_renders_safe_styled_export():
+    from app.agents.amazon import _carry_existing_slot_signatures, slot_signature
+    from app.agents.amazon_contracts import NativeCopyStyle
+
+    original = APlusPlan.model_validate(normalize_arguments({'brief':director_v2()})['plan'])
+    updated = original.model_copy(deep=True)
+    old = original.modules[0]
+    new = updated.modules[0]
+    slot = slots(original, old)[0]
+    key = f'{old.id}::{slot["id"]}'
+    prior = slot_signature(original, old, slot)
+    new.copy_style = NativeCopyStyle(font='editorial_serif', scale='display', tone='dark', color='#103653', align='center')
+    assert slot_signature(updated, new, slots(updated, new)[0]) == prior
+    new.headline = 'City & <script>'
+    ledger = {'submissions': [{'module_signatures': {key: prior}}]}
+    _carry_existing_slot_signatures(ledger, original, original, updated)
+    assert ledger['submissions'][0]['module_signatures'][key] == slot_signature(updated, new, slots(updated, new)[0])
+    rendered = preview_html({'brief': {'plan': updated.model_dump(mode='json')}, 'outputs': []})
+    assert 'data-copy-tone="dark"' in rendered and 'data-copy-scale="display"' in rendered
+    assert '--aplus-copy-color:#103653' in rendered and 'City &amp; &lt;script&gt;' in rendered
+    assert 'City & <script>' not in rendered and 'color-mix(in srgb' in rendered
+    with pytest.raises(ValidationError):
+        NativeCopyStyle(font='clean_sans', scale='section', tone='light', color='#000;display:none')
 
 def test_local_visual_edit_updates_authoritative_prompt_and_preserves_other_slot_signatures():
     from types import SimpleNamespace

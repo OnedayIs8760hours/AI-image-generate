@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react'
 import AuthenticatedImage from '../AuthenticatedImage'
-import {confirmAmazonModules,reviseAmazonModule,type AmazonPlanRecord,type AmazonModule,type AmazonReceipt} from '../../lib/amazonAgentApi'
+import {confirmAmazonModules,reviseAmazonModule,type AmazonPlanRecord,type AmazonModule,type AmazonReceipt,type NativeCopyStyle} from '../../lib/amazonAgentApi'
 import {agentRequestId,sendAgentChatMessage,confirmAgentRun,type AgentRun,type AgentOutput} from '../../lib/agentControlApi'
 import {downloadAuthenticatedFile} from '../../lib/serverDownloads'
 import {chatButton} from './AgentChatCards'
@@ -24,6 +24,10 @@ export default function AgentAmazonCard({record,conversationId,outputs=[],pendin
   useEffect(()=>{const savedId=saving.current;setModules(old=>record.plan.modules.map(m=>dirty.includes(m.id)&&m.id!==savedId?old.find(x=>x.id===m.id)||m:m));setDirty(old=>old.filter(id=>id!==savedId));saving.current=null},[record.id,record.revision])
   async function act(f:()=>Promise<unknown>){setBusy(true);try{await f();await onRefresh()}catch(e){onError(e instanceof Error?e.message:'操作失败')}finally{setBusy(false)}}
   function update(m:AmazonModule,key:keyof AmazonModule,value:string){setModules(old=>old.map(x=>x.id===m.id?{...x,[key]:value}:x));setDirty(old=>[...new Set([...old,m.id])])}
+  function updateCopyStyle(m:AmazonModule,copy_style:NativeCopyStyle|null){
+    setModules(old=>old.map(x=>x.id===m.id?{...x,copy_style}:x))
+    setDirty(old=>[...new Set([...old,m.id])])
+  }
   async function generate(){
     const pending=pendingRun?.plan?.actions.find(a=>a.tool==='generate_aplus')?.arguments
     if(pendingRun&&pending?.plan_id===record.id&&pending.expected_revision===record.revision&&Array.isArray(pending.module_ids)&&[...pending.module_ids].sort().join(',')===[...selected].sort().join(',')){await confirmAgentRun(pendingRun);return}
@@ -47,6 +51,10 @@ export default function AgentAmazonCard({record,conversationId,outputs=[],pendin
       <label className="mt-2 block"><input type="checkbox" checked={selected.includes(m.id)} onChange={e=>setSelected(old=>e.target.checked?[...old,m.id]:old.filter(id=>id!==m.id))}/> 选择本模块</label>
       <div className="my-2 flex gap-2">{m.reference_asset_ids.map(id=><AuthenticatedImage key={id} src={`/api/v1/assets/${id}/content`} alt={`${m.title}参考图`} className="h-20 w-20 rounded-lg object-contain"/>)}</div>
       {([['main_point','主要卖点'],['headline','英文标题（原生文字）'],['body','英文正文（原生文字）'],['composition','画面构图'],['desktop_layout','桌面布局'],['mobile_layout','手机布局'],['image_prompt','图片Prompt（不含排版文字）']] as const).map(([k,label])=><label key={k} className="my-2 block">{label}<textarea aria-label={`${m.id} ${label}`} value={m[k]} onChange={e=>update(m,k,e.target.value)} className="mt-1 min-h-16 w-full rounded-lg border bg-transparent p-2 dark:border-white/10"/></label>)}
+      {record.plan.deliverable!=='listing'&&<fieldset className="my-2 rounded-lg border p-3 dark:border-white/10">
+        <legend className="px-1">文字排版</legend>
+        <CopyStyleEditor value={m.copy_style} defaultColor={strategy?.concept.accent_color||'#17696b'} onChange={value=>updateCopyStyle(m,value)}/>
+      </fieldset>}
       <div className="my-2 rounded-lg bg-white p-3 text-sm">{record.module_specs?.[m.id]?.label} · {(record.module_specs?.[m.id]?.slots||[]).map(s=>s.id+' '+s.width+'×'+s.height).join(' / ')}</div>
       {!!m.design_principles?.length&&<details className="my-2"><summary>本模块应用的专业设计规则</summary><p className="mt-2">{m.design_principles.join(' · ')}</p>{m.art_direction&&Object.entries(m.art_direction).map(([k,v])=><p key={k} className="mt-2">{k}：{v}</p>)}<p className="mt-2">{record.skill_trace?.map(s=>s.id+' v'+s.version).join(' · ')}</p></details>}
       <p className="text-gray-500">验收：{m.acceptance.join('；')} · 规格 {m.spec_id}</p><button className={`${chatButton} mt-2`} disabled={busy||!dirty.includes(m.id)} onClick={()=>{saving.current=m.id;void act(()=>reviseAmazonModule(conversationId,record,m))}}>保存本模块修改</button>
@@ -56,4 +64,23 @@ export default function AgentAmazonCard({record,conversationId,outputs=[],pendin
     </details>
     {preview&&<div role="dialog" aria-label="A+双端排版预览" className="fixed inset-0 z-50 overflow-auto bg-black/70 p-4"><div className="mx-auto max-w-5xl rounded-2xl bg-white p-4 text-gray-900"><div className="sticky top-0 z-10 flex flex-wrap gap-2 bg-white py-2"><button className={chatButton} onClick={()=>setPreview('desktop')}>桌面预览</button><button className={chatButton} onClick={()=>setPreview('mobile')}>手机预览</button><button className={chatButton} onClick={()=>setPreview(null)}>关闭预览</button></div><p className="my-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">本平台模块组合审核预览，不代表 Seller Central 实际渲染或发布成功。</p><div className="mx-auto" style={{maxWidth:preview==='mobile'?375:970}}>{modules.map(m=><AmazonModulePreview key={m.id} record={record} module={m} outputs={outputs} conversationId={conversationId} mobile={preview==='mobile'}/>)}</div></div></div>}
   </section>
+}
+
+function CopyStyleEditor({value,defaultColor,onChange}:{value?:NativeCopyStyle|null;defaultColor:string;onChange:(value:NativeCopyStyle|null)=>void}){
+  if(!value)return <button type="button" className={chatButton} onClick={()=>onChange({font:'clean_sans',scale:'section',tone:'light',color:defaultColor,align:'left'})}>添加文字样式</button>
+  const choices=[
+    {key:'font',label:'标题字体',options:[['editorial_serif','衬线'],['clean_sans','无衬线'],['technical_mono','等宽']]},
+    {key:'scale',label:'标题层级',options:[['display','主视觉'],['section','模块']]},
+    {key:'tone',label:'文字背景',options:[['dark','深色'],['light','浅色']]},
+    {key:'align',label:'对齐方式',options:[['left','左对齐'],['center','居中']]},
+  ] as const
+  return <div className="flex flex-wrap items-end gap-3">
+    {choices.map(({key,label,options})=><label key={key} className="grid gap-1">{label}
+      <select className="rounded border bg-transparent p-1 dark:border-white/10" value={value[key]} onChange={e=>onChange({...value,[key]:e.target.value})}>
+        {options.map(([id,text])=><option key={id} value={id}>{text}</option>)}
+      </select>
+    </label>)}
+    <label className="grid gap-1">取色<input type="color" className="h-7 w-10" value={value.color} onChange={e=>onChange({...value,color:e.target.value})}/></label>
+    <button type="button" className={chatButton} onClick={()=>onChange(null)}>恢复默认</button>
+  </div>
 }

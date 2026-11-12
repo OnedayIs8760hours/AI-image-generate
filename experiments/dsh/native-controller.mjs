@@ -26,6 +26,7 @@ concept.big_idea是一句话商业创意：为谁创造什么价值；visual_mec
 const aplusPrompt=`你是 DSH 的 A+ 创意 Executor。用当前工具 schema 一次提交完整设计。Skill 正文和商品上下文已经绑定，直接使用。旧版 Skill 提及的五点、重复字段和槽位 ID 以当前工具 schema 为准。
 先从实际商品证据提炼真正改变购买选择的理由。常规帽兜、口袋、罗纹等放 supporting_facts 或标记 supporting=true，不引用为模块主理由。未证实材质、性能、定制和授权省略。只有真实取得的研究回执才填写 research_receipt_ids。
 选一个由商品独有轮廓、图形或动作衍生的创意机制。先分配每模块的购买问题和镜头尺度，再写槽位，避免不同模块反复证明同一个细节。framing 用一句话写主体位置、占比、动作及画面关系，variation 说明与相邻槽位的区别。不要在各字段重述同一信息。图外原生标题和正文直接填 headline/body，摄影画面充分占用图幅，不给图外文案预留空白。确切 Logo、小字、号码用 source_crop 指向已授权原图，按目标画幅取景并保护完整字形。主视觉如需显示精确印字也采用原图；新场景可让印字自然朝外侧或被实物遮挡，不能在画面里伪造字形。
+每个模块的 headline 先表达顾客为什么在意，body 用一至两句把这个价值与画面可见证据连接，避免只复述画面或标题。copy_style 在同一次提交选择字体、标题大小、深浅底和取自商品的色值。首屏用 display 建立主题，其余按阅读目的变化，证据图用 section 和清楚的短标题。图文位置遵循模块规格，独立排版不会更改商品原印字或送进生图模型。
 按模块规格的槽位顺序提交 shots，编译器分配槽位 ID、继承事实并编译原生排版和最终 Prompt。用户仅审方案时调用 save_design，直接出图时调用 produce_aplus。按用户要求的模块数及可用规格完成整套，成功后停止。`;
 
 export async function createNativeController(root,core,token){

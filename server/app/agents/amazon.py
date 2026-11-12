@@ -86,6 +86,7 @@ def findings(plan):
 
 def module_signature(plan, module):
     data=module.model_dump(mode='json')
+    data.pop('copy_style', None)
     if not module.rule_applications:data.pop('rule_applications',None)
     for slot in data.get('image_slots',[]):
         for key in ('design_execution','source_crop'):
@@ -215,8 +216,8 @@ async def revise_many(db, conv, args):
             p = APlusPlan.model_validate(p.model_dump(mode='json'))
         except ValidationError as error:
             raise AppError('agent.aplus_validation', '修改后购买理由与模块证据不匹配。', 422) from error
-        if data.get('controller') == 'dsh-native':
-            _carry_existing_slot_signatures(data, original, evidence_only, p)
+    if data.get('controller') == 'dsh-native':
+        _carry_existing_slot_signatures(data, original, evidence_only, p)
     await check_assets(db,conv,p)
     approvals={k:v for k,v in data['approvals'].items() if k not in changed and not supporting}
     row.metadata_json={**data,'revision':data['revision']+1,'plan':p.model_dump(mode='json'),'approvals':approvals}
@@ -228,7 +229,7 @@ def _carry_existing_slot_signatures(data, original, evidence_only, updated):
     from app.agents.aplus_design import slots
 
     def without_native_copy(module, slot):
-        return module.model_copy(update={'headline': '', 'body': '', 'image_slots': [
+        return module.model_copy(update={'headline': '', 'body': '', 'copy_style': None, 'image_slots': [
             slot['direction'].model_copy(update={'headline': '', 'body': ''})]})
 
     carried = {}

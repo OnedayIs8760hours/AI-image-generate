@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.agents.amazon_brief import BriefEvidence, DirectorAPlusBrief, expand
-from app.agents.amazon_contracts import OriginalCrop
+from app.agents.amazon_contracts import NativeCopyStyle, OriginalCrop
 from app.agents.contracts import StrictModel
 
 
@@ -39,8 +39,9 @@ class ModuleDecision(StrictModel):
     purpose: str = Field(min_length=5, max_length=150)
     reasons: list[str] = Field(min_length=1, max_length=5, description='Only IDs of main buying reasons. Their facts are inherited automatically.')
     supporting_facts: list[str] = Field(default_factory=list, max_length=8)
-    headline: str = Field(min_length=1, max_length=80)
-    body: str = Field(default='', max_length=300)
+    headline: str = Field(min_length=1, max_length=80, description='A customer-facing line expressing this module’s reason or story beat.')
+    body: str = Field(default='', max_length=300, description='One or two concrete sentences linking the visible evidence to the customer’s decision. Develop the headline.')
+    copy_style: NativeCopyStyle = Field(description='Choose the typography hierarchy and a product-linked text panel for this module.')
     shots: list[ShotDecision] = Field(min_length=1, max_length=4, description='Exactly the selected spec’s slots in listed order. Slot IDs and dimensions are supplied by the compiler.')
 
 
@@ -106,6 +107,7 @@ def compile_first_pass(brief):
             'id': f'm{index}', 'title': module.headline, 'spec_id': module.spec_id, 'main_point': module.purpose,
             'composition': first.framing, 'evidence_ids': list(dict.fromkeys([*facts, *module.supporting_facts]))[:8],
             'copy_space': 'right' if layout == 'overlay' else 'none', 'headline': module.headline, 'body': module.body,
+            'copy_style': module.copy_style,
             'art_direction': {'framing': first.framing, 'lighting': '光线：' + first.light, 'hierarchy': first.focus,
                               'integration': first.variation},
             'design_principles': [rule['principle'] for rule in applications], 'rule_applications': applications,
@@ -136,7 +138,8 @@ def compile_first_pass(brief):
             ],
             'concept': {'theme': concept.theme, 'audience': concept.audience, 'buying_motivation': concept.idea,
                 'emotional_tone': concept.style[:150], 'distinctive_device': concept.device,
-                'palette': concept.style, 'photographic_language': concept.style, 'typography_and_layout': '按原生模块独立排版。',
+                'palette': concept.style, 'photographic_language': concept.style,
+                'typography_and_layout': '各模块按其文字样式编排标题与正文；产品原印字与营销排版分离。',
                 'narrative': ' → '.join(m.purpose for m in brief.modules)[:400], 'native_type_style': 'clean_sans',
                 'canvas_color': '#ffffff', 'ink_color': '#17202a', 'accent_color': '#17696b',
                 'big_idea': concept.idea, 'visual_mechanism': concept.device, 'product_specificity': brief.identity[:250]},

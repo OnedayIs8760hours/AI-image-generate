@@ -27,3 +27,15 @@ it('uses the owned original-crop endpoint instead of a generated replacement for
  expect(html).toContain('商品原图局部');expect(html).not.toContain('src="/1.png"')
  expect(html).toContain('/2.png');expect(html).toContain('/3.png')
 })
+it('applies the selected type and panel to native copy while preserving every image slot',()=>{
+ const styled:AmazonModule={...module,copy_style:{font:'editorial_serif',scale:'display',tone:'dark',color:'#152c51',align:'center'}}
+ const html=renderToStaticMarkup(<AmazonModulePreview record={record} module={styled} outputs={outputs} mobile/>)
+ expect(html).toContain('data-copy-font="editorial_serif"')
+ expect(html).toContain('data-copy-scale="display"')
+ expect(html).toContain('data-copy-tone="dark"')
+ expect(html).toContain('data-copy-align="center"')
+ expect(html).toContain('--aplus-copy-color:#152c51')
+ expect(html.match(/Product truth/g)?.length).toBe(1)
+ expect(html.match(/<img /g)?.length).toBe(3)
+ expect(html).toContain('grid-template-columns:1fr')
+})

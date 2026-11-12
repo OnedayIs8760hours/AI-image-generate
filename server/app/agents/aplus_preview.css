@@ -1,0 +1,124 @@
+.aplus-module[data-copy-tone] .aplus-copy {
+  min-width: 0;
+  padding: clamp(1.25rem, 3.6vw, 2.75rem);
+  overflow-wrap: anywhere;
+  background: #f1f5f9;
+  background: color-mix(in srgb, var(--aplus-copy-color) 14%, white);
+  color: #17202a;
+  white-space: pre-wrap;
+}
+
+.aplus-module[data-copy-tone="dark"] .aplus-copy {
+  background: #111827;
+  background: color-mix(in srgb, var(--aplus-copy-color) 36%, #111827);
+  color: #f8fafc;
+}
+
+.aplus-module[data-copy-tone] .aplus-copy-title {
+  margin: 0;
+  font: 700 clamp(1.55rem, 3.2vw, 2.55rem) / 1.08 Arial, sans-serif;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.aplus-module[data-copy-scale="display"] .aplus-copy-title {
+  font-size: clamp(2.1rem, 5vw, 4.15rem);
+}
+
+.aplus-module[data-copy-font="editorial_serif"] :is(.aplus-copy-title, .aplus-caption h4) {
+  font-family: Georgia, serif;
+}
+
+.aplus-module[data-copy-font="technical_mono"] :is(.aplus-copy-title, .aplus-caption h4) {
+  font-family: Consolas, monospace;
+}
+
+.aplus-module[data-copy-align="center"] .aplus-copy {
+  text-align: center;
+}
+
+.aplus-module[data-copy-tone] .aplus-copy-body {
+  max-width: 56ch;
+  margin: 0.85rem 0 0;
+  font: 400 clamp(0.9rem, 1.4vw, 1.05rem) / 1.55 Arial, sans-serif;
+}
+
+.aplus-module[data-copy-align="center"] .aplus-copy-body {
+  margin-inline: auto;
+}
+
+.aplus-module[data-copy-tone] .aplus-caption {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  background: #f1f5f9;
+  background: color-mix(in srgb, var(--aplus-copy-color) 9%, white);
+  color: #17202a;
+  overflow-wrap: anywhere;
+}
+
+.aplus-module[data-copy-tone] .aplus-caption h4 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.aplus-module[data-copy-tone] .aplus-caption p {
+  margin: 0.45rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.aplus-module[data-copy-tone] .aplus-copy :first-child,
+.aplus-module[data-copy-tone] .aplus-caption :first-child {
+  margin-top: 0;
+}
+
+.aplus-module[data-copy-tone] .aplus-copy-side {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.aplus-module[data-mobile="true"][data-copy-tone] .aplus-copy {
+  padding: 1.25rem;
+}
+
+.aplus-module[data-mobile="true"][data-copy-scale="display"] .aplus-copy-title {
+  font-size: 2.15rem;
+}
+
+.aplus-overlay {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.aplus-overlay > div {
+  grid-area: 1 / 1;
+}
+
+.aplus-overlay-copy {
+  justify-self: end;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 42%;
+  min-width: 0;
+  background: #ffffffdd;
+}
+
+@media (max-width: 600px) {
+  .aplus-module[data-copy-tone] .aplus-copy {
+    padding: 1.25rem;
+  }
+  .aplus-module[data-copy-scale="display"] .aplus-copy-title {
+    font-size: 2.15rem;
+  }
+  .aplus-overlay > div {
+    grid-area: auto;
+  }
+  .aplus-overlay-copy {
+    justify-self: stretch;
+    width: auto;
+  }
+}

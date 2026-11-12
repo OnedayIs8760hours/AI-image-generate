@@ -66,6 +66,16 @@ class RuleApplication(StrictModel):
     decision:str=Field(min_length=1,max_length=300)
 
 
+class NativeCopyStyle(StrictModel):
+    """Presentation of marketing copy in the composed module preview."""
+
+    font: Literal['editorial_serif', 'clean_sans', 'technical_mono']
+    scale: Literal['display', 'section']
+    tone: Literal['light', 'dark']
+    color: str = Field(pattern=r'^#[0-9a-fA-F]{6}$', description='A brand color from this product. The preview derives a readable background and text color.')
+    align: Literal['left', 'center'] = 'left'
+
+
 class ImageSlot(StrictModel):
     id:str=Field(pattern=r'^[a-zA-Z0-9_-]{1,50}$')
     composition:str=Field(min_length=1,max_length=1200)
@@ -88,6 +98,7 @@ class APlusModule(StrictModel):
     reference_asset_ids: list[str] = Field(min_length=1, max_length=10)
     headline: str = Field(default='', max_length=150)
     body: str = Field(default='', max_length=2000)
+    copy_style: NativeCopyStyle | None = None
     desktop_layout: str = Field(min_length=1, max_length=2000)
     mobile_layout: str = Field(min_length=1, max_length=2000)
     prohibited: list[str] = Field(default_factory=list, max_length=30)

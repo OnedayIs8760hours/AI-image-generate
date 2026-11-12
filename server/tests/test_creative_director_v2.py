@@ -8,6 +8,7 @@ from app.agents.amazon_brief import SaveDirectorAPlusV2,normalize_arguments
 from app.agents.amazon_contracts import APlusPlan,SourceCrop
 from app.agents.professional_prompts import aplus
 from app.agents.aplus_design import slots
+from app.agents.aplus_first_pass import SaveFirstPass, compile_first_pass
 from app.agents.amazon_source import render_crop
 from app.services.image_delivery_service import delivery_prompt_contract
 from tests.test_creative_director import director
@@ -60,6 +61,45 @@ def test_source_crop_retains_real_pixels_and_does_not_call_a_model():
     assert trace['source_sha256']==hashlib.sha256(raw).hexdigest() and not trace['upscaled']
     for box in ([0,0,1.1,1],[.7,0,.2,1],[0,0,1,float('nan')]):
         with pytest.raises(ValidationError):SourceCrop(asset_id='owned',box=box)
+
+
+def test_first_pass_preserves_english_direction_and_moves_weak_reason_to_support():
+    frame = (
+        'A close three-quarter frame looks across the bench toward the hoodie. '
+        'The sleeves form a diagonal from the upper left to the lower right. '
+        'The hands sit near the lower edge and the navy-to-teal fabric fills the frame. '
+        'Keep the original printed faces folded inward.'
+    )
+    brief = SaveFirstPass(brief={
+        'identity': 'Navy-to-teal pullover with an original chest graphic and a front pouch.',
+        'reference_asset_ids': ['original'],
+        'facts': [
+            {'id': 'fade', 'statement': 'Navy-to-teal fade on the body.', 'basis': 'visible_reference'},
+            {'id': 'pouch', 'statement': 'A pouch is visible in the source.', 'basis': 'visible_reference'},
+        ],
+        'reasons': [
+            {'id': 'color', 'value': 'Bring the city color into daily wear.', 'facts': ['fade'], 'occasion': 'Daily wear'},
+            {'id': 'shape', 'value': 'Familiar front pouch.', 'facts': ['pouch'], 'occasion': 'Daily wear', 'supporting': True},
+        ],
+        'concept': {'theme': 'Wear the city home', 'audience': 'City residents',
+                    'idea': 'Use the fade as a connection to city evenings.',
+                    'device': 'Carry the fade through the diagonal of a folding gesture.',
+                    'style': 'Warm side light against navy and teal.'},
+        'review': 'The color is visible in the original. The city association is a creative interpretation.',
+        'modules': [{
+            'spec_id': 'basic_single_image_right', 'purpose': 'Close with the garment at rest.',
+            'reasons': ['color', 'shape'], 'headline': 'Back Home',
+            'shots': [{'framing': frame, 'light': 'Warm side light', 'focus': 'Hands follow the navy-to-teal fold.',
+                       'variation': 'An at-rest gesture replaces a repeated full product view.'}],
+        }],
+    }).brief
+    plan = compile_first_pass(brief)
+    module = plan.modules[0]
+    slot = slots(plan, module)[0]
+    assert module.narrative.reason_ids == ['color']
+    assert module.evidence_ids == ['fade', 'pouch']
+    assert plan.creative_strategy.purchase_reasons[1].presentation == 'internal_only'
+    assert frame in aplus(plan, module, slot=slot)
 
 def test_local_visual_edit_updates_authoritative_prompt_and_preserves_other_slot_signatures():
     from types import SimpleNamespace

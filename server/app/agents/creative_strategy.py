@@ -39,14 +39,16 @@ class CreativeStrategy(StrictModel):
     research_basis:Literal['market_hypothesis','provided_context','verified_mcp']
     research_receipt_ids:list[str]=Field(default_factory=list,max_length=10)
     research_limitations:str=Field(min_length=3,max_length=300)
-    purchase_reasons:list[PurchaseReason]=Field(min_length=5,max_length=5)
+    purchase_reasons:list[PurchaseReason]=Field(min_length=1,max_length=5)
     concept:CreativeConcept
     preflight_review:str=Field(min_length=20,max_length=600,description='Explain fact limits, consumer value, shot rhythm, module fit and what was deliberately omitted. No numeric taste score.')
     priority_method:str|None=Field(default=None,max_length=350)
     rejected_reasons:list[str]|None=Field(default=None,max_length=6,description='Weak, duplicate or unsupported selling points deliberately merged or omitted, with reasons.')
     @model_validator(mode='after')
     def distinct(self):
-        if len({r.id for r in self.purchase_reasons})!=5 or {r.priority for r in self.purchase_reasons}!={1,2,3,4,5}:raise ValueError('five reasons need unique ids and priorities 1..5')
+        count = len(self.purchase_reasons)
+        if len({r.id for r in self.purchase_reasons}) != count or {r.priority for r in self.purchase_reasons} != set(range(1, count + 1)):
+            raise ValueError('purchase reasons need unique ids and consecutive priorities starting at 1')
         if self.research_basis=='verified_mcp' and not self.research_receipt_ids:raise ValueError('verified MCP requires real receipt ids')
         return self
 

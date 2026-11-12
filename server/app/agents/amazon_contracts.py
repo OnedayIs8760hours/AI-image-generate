@@ -40,14 +40,14 @@ class ArtDirection(StrictModel):
 
 class VisualExecution(StrictModel):
     purpose:str=Field(min_length=5,max_length=200)
-    subject_placement:str=Field(min_length=5,max_length=250,description='Subject position and occupied area, plus the relationship to supporting elements.')
-    camera:str=Field(min_length=5,max_length=200)
+    subject_placement:str=Field(min_length=5,max_length=400,description='Subject position and occupied area, plus the relationship to supporting elements.')
+    camera:str=Field(min_length=5,max_length=400)
     light:str=Field(min_length=1,max_length=200,description='A concrete lighting decision. For direct source crops, simply state that original lighting is preserved.')
     hierarchy:str=Field(min_length=5,max_length=250)
     native_copy_layout:str=Field(min_length=5,max_length=250,description='Actual native module text structure: headline, support copy, reading order; external text must not create blank image panels.')
     differentiation:str=Field(min_length=5,max_length=250,description='How this shot differs in purpose, composition and action from the other shots.')
 
-class SourceCrop(StrictModel):
+class OriginalCrop(StrictModel):
     asset_id:str=Field(min_length=1,max_length=80)
     box:list[float]=Field(min_length=4,max_length=4,description='Normalized [left,top,right,bottom] within the real source image, all 0..1. Direct crop only; no invented pixels or background removal.')
     @model_validator(mode='after')
@@ -55,6 +55,11 @@ class SourceCrop(StrictModel):
         l,t,r,b=self.box
         if not (0<=l<r<=1 and 0<=t<b<=1):raise ValueError('source crop must lie within the original image')
         return self
+
+
+class SourceCrop(OriginalCrop):
+    origin: Literal['codex_imagegen'] | None = None
+
 
 class RuleApplication(StrictModel):
     principle:DesignPrinciple
@@ -131,6 +136,7 @@ class ModuleRevisions(StrictModel):
     plan_id: str
     expected_revision: int = Field(ge=1)
     modules: list[APlusModule] = Field(min_length=1, max_length=7)
+    supporting_reason_ids: list[str] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode='after')
     def unique_modules(self):

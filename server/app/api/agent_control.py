@@ -16,7 +16,7 @@ from app.agents import dsh_platform
 from app.agents import production
 from app.agents import creative_modules
 from app.agents import amazon, amazon_research
-from app.agents.amazon_contracts import ModuleRevision, ModuleApproval
+from app.agents.amazon_contracts import ModuleRevision, ModuleRevisions, ModuleApproval
 from app.agents.contracts import ConversationCreate, MessageCreate, ConfirmRequest, RunResponse, AttachmentCreate, StrictModel
 from app.agents.contracts import PromptRevisionRequest
 from app.agents.adapters import batch_tryon, attachment, chat
@@ -249,6 +249,20 @@ async def revise_amazon_module(conversation_id:str,plan_id:str,payload:ModuleRev
     if payload.plan_id!=plan_id:raise AppError('agent.context_mismatch','方案ID不匹配。',422)
     conv=await runtime.conversation(db,_org(principal),principal.user.id,conversation_id,lock=True)
     result=await amazon.revise(db,conv,payload);await db.commit();return result
+
+
+@router.put('/conversations/{conversation_id}/amazon-plans/{plan_id}/modules')
+async def revise_amazon_modules(conversation_id: str, plan_id: str, payload: ModuleRevisions,
+    db: AsyncSession = Depends(_agent_db), settings: Settings = Depends(_settings),
+    principal: Principal = Depends(require_permissions('projects.write', 'assets.read'))):
+    if not settings.agent_control_writes_enabled:
+        raise AppError('agent.writes_disabled', '总控写操作未启用。', 403)
+    if payload.plan_id != plan_id:
+        raise AppError('agent.context_mismatch', '方案ID不匹配。', 422)
+    conv = await runtime.conversation(db, _org(principal), principal.user.id, conversation_id, lock=True)
+    result = await amazon.revise_many(db, conv, payload)
+    await db.commit()
+    return result
 
 
 @router.post('/conversations/{conversation_id}/amazon-plans/{plan_id}/confirm')

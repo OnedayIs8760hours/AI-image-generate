@@ -32,4 +32,7 @@ async def render(db,storage,conv,plan_id,module_id,slot_id):
     raw=await read_asset_content(asset,storage)
     size=(slot['spec']['width'],slot['spec']['height'])
     background=plan.creative_strategy.concept.canvas_color if plan.creative_strategy else '#ffffff'
-    return render_crop(raw,crop.box,size,background)
+    content, trace = render_crop(raw, crop.box, size, background)
+    if crop.origin == 'codex_imagegen':
+        trace['processing'] = 'codex_imagegen_import_crop_and_contain'
+    return content, trace

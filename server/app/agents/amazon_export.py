@@ -48,7 +48,8 @@ async def manifest(db, conv, plan_id):
     from app.agents.aplus_design import slots
     source_crops=[{'module_id':m.id,'slot_id':s['id'],'asset_id':s['direction'].source_crop.asset_id,
         'source_crop':s['direction'].source_crop.model_dump(),'width':s['spec']['width'],'height':s['spec']['height'],
-        'spec_snapshot':s['spec'],'processing':'original_source_crop_and_contain_no_generative_redraw'}
+        'spec_snapshot':s['spec'],'processing':('codex_imagegen_import_crop_and_contain'
+            if s['direction'].source_crop.origin == 'codex_imagegen' else 'original_source_crop_and_contain_no_generative_redraw')}
         for m in plan.modules for s in slots(plan,m) if s['direction'].source_crop]
     source_pairs={(o['module_id'],o['slot_id']) for o in source_crops}
     expected={(m.id,s['id']) for m in plan.modules for s in slots(plan,m)}

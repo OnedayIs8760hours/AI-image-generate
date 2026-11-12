@@ -90,6 +90,8 @@ def module_signature(plan, module):
     for slot in data.get('image_slots',[]):
         for key in ('design_execution','source_crop'):
             if slot.get(key) is None:slot.pop(key,None)
+        if slot.get('source_crop') and slot['source_crop'].get('origin') is None:
+            slot['source_crop'].pop('origin', None)
     if not module.narrative:data.pop('narrative',None)
     for key in ('design_direction','requested_width','requested_height'):
         if data[key] is None:data.pop(key)
@@ -188,11 +190,65 @@ async def revise_many(db, conv, args):
     if data['revision']!=args.expected_revision:raise AppError('agent.revision_conflict','方案已更新，请刷新后修改。',409)
     changed={m.id:m for m in args.modules}
     if set(changed)-{m.id for m in p.modules}:raise AppError('agent.module_missing','指定模块不存在。',404)
+    original = p.model_copy(deep=True)
+    supporting = set(args.supporting_reason_ids)
+    if supporting:
+        if not p.creative_strategy or not supporting <= {r.id for r in p.creative_strategy.purchase_reasons}:
+            raise AppError('agent.reason_missing', '指定的购买理由不属于当前方案。', 422)
+        for reason in p.creative_strategy.purchase_reasons:
+            if reason.id in supporting:
+                reason.presentation = 'internal_only'
+                reason.priority_rationale = '仅作辅助证据，用于说明原图可见结构。'
+        for module in p.modules:
+            if module.narrative:
+                module.narrative.reason_ids = [r for r in module.narrative.reason_ids if r not in supporting]
+    evidence_only = p.model_copy(deep=True)
     p.modules=[changed.get(m.id,m) for m in p.modules]
+    if supporting:
+        for module in p.modules:
+            if module.narrative:
+                module.narrative.reason_ids = [r for r in module.narrative.reason_ids if r not in supporting]
+                if not module.narrative.reason_ids:
+                    raise AppError('agent.reason_required', '每个模块需关联至少一个主购买理由。', 422)
+        from pydantic import ValidationError
+        try:
+            p = APlusPlan.model_validate(p.model_dump(mode='json'))
+        except ValidationError as error:
+            raise AppError('agent.aplus_validation', '修改后购买理由与模块证据不匹配。', 422) from error
+        if data.get('controller') == 'dsh-native':
+            _carry_existing_slot_signatures(data, original, evidence_only, p)
     await check_assets(db,conv,p)
-    approvals={k:v for k,v in data['approvals'].items() if k not in changed}
+    approvals={k:v for k,v in data['approvals'].items() if k not in changed and not supporting}
     row.metadata_json={**data,'revision':data['revision']+1,'plan':p.model_dump(mode='json'),'approvals':approvals}
     await db.flush();return response(row)
+
+
+def _carry_existing_slot_signatures(data, original, evidence_only, updated):
+    """Retain output reuse when the only changes are evidence rank and native text."""
+    from app.agents.aplus_design import slots
+
+    def without_native_copy(module, slot):
+        return module.model_copy(update={'headline': '', 'body': '', 'image_slots': [
+            slot['direction'].model_copy(update={'headline': '', 'body': ''})]})
+
+    carried = {}
+    for old, demoted, new in zip(original.modules, evidence_only.modules, updated.modules):
+        spec = module_spec(updated, new)
+        if old.spec_id != new.spec_id or not spec or spec.get('layout') == 'overlay':
+            continue
+        old_slots = {slot['id']: slot for slot in slots(original, old)}
+        demoted_slots = {slot['id']: slot for slot in slots(evidence_only, demoted)}
+        for slot in slots(updated, new):
+            slot_id = slot['id']
+            if slot_id not in demoted_slots or slot['direction'].source_crop:
+                continue
+            if without_native_copy(demoted, demoted_slots[slot_id]) == without_native_copy(new, slot):
+                carried[f'{new.id}::{slot_id}'] = (
+                    slot_signature(original, old, old_slots[slot_id]), slot_signature(updated, new, slot))
+    for submission in data['submissions']:
+        for key, (before, after) in carried.items():
+            if submission['module_signatures'].get(key) == before:
+                submission['module_signatures'][key] = after
 
 
 async def approve(db, conv, plan_id, args):

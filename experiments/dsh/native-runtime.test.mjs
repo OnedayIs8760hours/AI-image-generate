@@ -4,6 +4,7 @@ import {mkdtempSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createNativeRuntime} from './native-runtime.mjs';
+import {createNativeController} from './native-controller.mjs';
 
 test('official Agent Loop executes scoped native tool calls and commits durable Session events',async()=>{
   const root=mkdtempSync(join(tmpdir(),'dsh-native-contract-'));let calls=0;let executed=0;
@@ -39,4 +40,44 @@ test('a provider failure retains its real code instead of looking like an empty 
   const agent=await runtime.ensure('failure-session','contract-model','Answer normally.',[]);
   await assert.rejects(runtime.run(agent,'request','hello'),error=>error.code==='experiment.budget_exhausted'&&error.message==='验收调用次数已达上限');
   assert.equal(calls,1);assert.equal(runtime.result(agent.id),undefined);
+});
+
+test('Listing preserves the final validation error when the Executor reaches its call limit', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-listing-limit-'));
+  const request = {id:'listing-error', org:'org', user:'user', session:'chat', mode:'auto', text:'策划一张 Listing 主图', asset_ids:[], selection:{}};
+  const error = '策划字段不完整：Listing 图的商品事实无法完整关联到购买理由。';
+  const ticket = {id:'listing-ticket', assignments:[{id:'a1'}]};
+  const core = {
+    list: () => [ticket],
+    intake: () => ({execute:true, ticket:ticket.id}),
+    repo: {tickets:{get:() => ticket}},
+    sessionStarted: () => ({session:'native', assignment:'a1'}),
+  };
+  let executorCalls = 0;
+  const response = (value, status=200) => new Response(JSON.stringify(value), {status});
+  const toolCall = (id, name, args) => ({tool_calls:[{id, function:{name, arguments:JSON.stringify(args)}}]});
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    const input = JSON.parse(init.body);
+    if (url.endsWith('/prepare')) return response({skills:[], context:{assets:[]}, conversation:'chat', run:'run',
+      catalog:['produce_listing','load_skill','read_context'].map(name=>({name,description:name,parameters:{type:'object'}}))});
+    if (url.endsWith('/tool')) return response({error:{code:'dsh.design_invalid', message:error}}, 422);
+    if (input.role==='main') return response(toolCall('route', 'route_task', {
+      action:'task', executor:'listing', message:'准备策划', ticket:null, plan_only:false, needs_research:false,
+    }));
+    executorCalls++;
+    assert.deepEqual(input.options.tools.map(tool=>tool.name), ['produce_listing']);
+    return response(toolCall('design-'+executorCalls, 'produce_listing', {}));
+  });
+  const controller = await createNativeController(root, core, 'test');
+  controller.intake(request);
+  let result = controller.status(request);
+  for (let i=0; i<200 && result.state!=='failed'; i++) {
+    await new Promise(resolve=>setTimeout(resolve, 10));
+    result = controller.status(request);
+  }
+  assert.equal(result.state, 'failed');
+  assert.equal(result.error, 'Error: '+error);
+  assert.equal(result.error_code, 'dsh.design_invalid');
+  assert.equal(result.executor_calls, 2);
+  assert.equal(executorCalls, 2);
 });

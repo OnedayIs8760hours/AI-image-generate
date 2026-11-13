@@ -3,12 +3,13 @@
 This is an internal inference contract, not a new business tool or storage model.
 Legacy full SavePlan requests remain valid and use the same execution boundary.
 """
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import Field, model_validator
 from app.agents.contracts import StrictModel
-from app.agents.creative_strategy import CreativeStrategy,CreativeStrategyV2,ModuleNarrative,validate_mapping
+from app.agents.creative_strategy import CreativeStrategy,CreativeStrategyV2,ModuleNarrative,PurchaseReasonV2,validate_mapping
 from app.agents.amazon_contracts import APlusPlan, APlusModule, Evidence, MarketInsight,ArtDirection,ImageSlot,DesignPrinciple,NativeCopyStyle,RuleApplication,VisualExecution
 
 VERSION='amazon-design-decisions-v1'
@@ -100,6 +101,57 @@ class DirectorListingBrief(DesignBrief):
     creative_strategy:CreativeStrategy
     modules:list[DirectorModuleDecision]=Field(min_length=1,max_length=7)
 
+    @model_validator(mode='before')
+    @classmethod
+    def bind_listing_reasons(cls, value):
+        """Recover fact-ID links and keep unused buying reasons as internal context."""
+        if not isinstance(value, dict) or value.get('deliverable') != 'listing':
+            return value
+        strategy = value.get('creative_strategy')
+        modules = value.get('modules')
+        if not isinstance(strategy, dict) or not isinstance(modules, list):
+            return value
+        raw_reasons = strategy.get('purchase_reasons')
+        if not isinstance(raw_reasons, list) or not all(
+            isinstance(r, dict) and isinstance(r.get('id'), str) and
+            isinstance(r.get('evidence_ids'), list) and all(isinstance(fact, str) for fact in r['evidence_ids'])
+            for r in raw_reasons
+        ):
+            return value  # Let normal field validation report malformed input.
+        known = {r['id'] for r in raw_reasons}
+        if len(known) != len(raw_reasons):
+            return value
+        evidence = value.get('evidence')
+        if not isinstance(evidence, list) or not all(isinstance(fact, dict) and isinstance(fact.get('id'), str) for fact in evidence):
+            return value
+        fact_ids = {fact['id'] for fact in evidence}
+        value = deepcopy(value)
+        reasons = value['creative_strategy']['purchase_reasons']
+        used = set()
+        for module in value['modules']:
+            narrative = module.get('narrative') if isinstance(module, dict) else None
+            links = narrative.get('reason_ids') if isinstance(narrative, dict) else None
+            module_facts = module.get('evidence_ids') if isinstance(module, dict) else None
+            if (not isinstance(links, list) or not links or not all(isinstance(link, str) for link in links)
+                or not isinstance(module_facts, list) or not all(isinstance(fact, str) for fact in module_facts)):
+                return value
+            explicit = [link for link in links if link in known]
+            facts = set(links) - known
+            if facts:
+                if not (facts <= set(module_facts) and facts <= fact_ids):
+                    raise ValueError('Listing 图的卖点关联包含未知 ID，请引用购买理由或本图已有商品事实。')
+                inferred = [r for r in reasons if r.get('presentation') != 'internal_only'
+                            and r['evidence_ids'] and set(r['evidence_ids']) <= facts]
+                if set(fact for r in inferred for fact in r['evidence_ids']) != facts:
+                    raise ValueError('Listing 图的商品事实无法完整关联到购买理由，请为该图明确选择卖点。')
+                explicit.extend(r['id'] for r in inferred)
+            narrative['reason_ids'] = list(dict.fromkeys(explicit))
+            used.update(explicit)
+        for reason in reasons:
+            if reason['id'] not in used and reason.get('presentation') in {'visual', 'native_copy', 'visual_and_copy'}:
+                reason['presentation'] = 'internal_only'
+        return value
+
 class SaveDirectorAPlus(StrictModel):
     brief:DirectorAPlusBrief
 
@@ -128,8 +180,12 @@ class DirectorAPlusBriefV2(DirectorAPlusBrief):
     creative_strategy:CreativeStrategyV2
     modules:list[DirectorModuleV2]=Field(min_length=1,max_length=7)
 
+class ListingStrategyV2(CreativeStrategyV2):
+    purchase_reasons:list[PurchaseReasonV2]=Field(min_length=1,max_length=5)
+
+
 class DirectorListingBriefV2(DirectorListingBrief):
-    creative_strategy:CreativeStrategyV2
+    creative_strategy:ListingStrategyV2
     modules:list[DirectorModuleV2]=Field(min_length=1,max_length=7)
 
 class SaveDirectorAPlusV2(StrictModel):
@@ -149,7 +205,6 @@ class SaveBriefPatch(StrictModel):
 
 def merge_patch(candidate,patch,allowed_ids):
     """Model may replace only known affected modules, never shared facts/locks."""
-    from copy import deepcopy
     value=SaveBriefPatch.model_validate(patch)
     changed={m.id:m.model_dump(mode='json') for m in value.brief.modules}
     if len(changed)!=len(value.brief.modules) or set(changed)-set(allowed_ids):

@@ -252,7 +252,7 @@ async def prepare(value:dict,db:AsyncSession=Depends(get_db_session)):
 
 def catalog(row):
     from app.agents.aplus_first_pass import SaveFirstPass
-    from app.agents.amazon_brief import SaveDirectorListingV2 as SaveDesignBrief
+    from app.agents.amazon_brief import SaveDirectorListingV2
     from app.agents.amazon_contracts import ModuleRevisions,GenerateAPlus
     from app.agents.contracts import ChatImageAction
     reg=registry(row)
@@ -261,7 +261,7 @@ def catalog(row):
         {'name':'read_context','description':'Read owned assets, current outputs, plans, real Amazon module specifications and MCP schemas.',
          'parameters':{'type':'object','properties':{},'additionalProperties':False}},
         {'name':'save_design','description':'Save the A+ decisions for review without sending image requests. The compiler supplies slot IDs, image prompts and native text placement.', 'parameters':SaveFirstPass.model_json_schema()},
-        {'name':'save_listing','description':'Save a Listing suite using its separate visual rules and company design directions.', 'parameters':SaveDesignBrief.model_json_schema()},
+        {'name':'save_listing','description':'Save the requested Listing images for review. Choose only the buying reasons each image communicates.', 'parameters':SaveDirectorListingV2.model_json_schema()},
         {'name':'revise_modules','description':'Update only the explicitly requested stable module IDs in the existing plan.', 'parameters':ModuleRevisions.model_json_schema()},
         {'name':'generate','description':'Submit authorized plan modules to existing concurrent image JobBatch; cached/unknown requests are never resent.', 'parameters':GenerateAPlus.model_json_schema()},
         {'name':'create_images','description':'Generate or edit independent images through the existing image-creation Skill and Job service.', 'parameters':ChatImageAction.model_json_schema()},
@@ -279,7 +279,7 @@ def catalog(row):
             tools.append({'name':'mcp_'+cap.id.replace('.','_'),'description':cap.description,'parameters':cap.input_schema,'capability_id':cap.id})
     tools.extend([
         {'name':'produce_aplus','description':'Submit concise creative decisions for a complete A+ suite. The compiler supplies slot IDs, image prompts and native text placement, then the existing Worker produces the images.', 'parameters':SaveFirstPass.model_json_schema()},
-        {'name':'produce_listing','description':'Design and immediately generate the Listing suite using its dedicated visual rules.', 'parameters':SaveDesignBrief.model_json_schema()},
+        {'name':'produce_listing','description':'Design and generate the requested Listing images. Choose only the buying reasons each image communicates.', 'parameters':SaveDirectorListingV2.model_json_schema()},
         {'name':'revise_and_generate','description':'Atomically revise ONLY requested existing modules and generate only those modules, preserving other outputs.', 'parameters':ModuleRevisions.model_json_schema()}])
     tools.append({'name':'revise_visual','description':'Change ONLY the requested A+/Listing module image composition and lighting. Preserve all copy, specs, references and other modules automatically; generate only this module.', 'parameters':VisualRevision.model_json_schema()})
     return tools
@@ -424,7 +424,6 @@ async def tool(value:dict,db:AsyncSession=Depends(get_db_session)):
         from app.agents.contracts import ToolAction
         if name in {'save_design','save_listing','produce_aplus','produce_listing'}:
             from app.agents.amazon_brief import SaveDirectorAPlusV2,SaveDirectorListingV2,SaveDirectorAPlus,SaveDirectorListing
-            from app.agents.amazon_contracts import APlusPlan
             from app.agents.aplus_first_pass import SaveFirstPass, compile_first_pass
             expected = 'listing' if name in {'save_listing', 'produce_listing'} else 'aplus'
             brief = args.get('brief', {})
@@ -437,11 +436,12 @@ async def tool(value:dict,db:AsyncSession=Depends(get_db_session)):
                 else:
                     contract = (SaveDirectorListingV2 if v2 else SaveDirectorListing) if expected == 'listing' else (SaveDirectorAPlusV2 if v2 else SaveDirectorAPlus)
                     director = contract.model_validate(args).brief
-                    plan = APlusPlan.model_validate(amazon_brief.normalize_arguments({'brief': director.model_dump(mode='json')})['plan'])
+                    plan = amazon_brief.expand(director)
                     facts = director.evidence
             except ValueError as error:
                 detail = '; '.join('.'.join(map(str, e['loc'])) + ': ' + e['msg'] for e in error.errors(include_input=False)) if isinstance(error, ValidationError) else str(error)
                 raise AppError('dsh.design_invalid', '策划字段不完整：' + detail, 422) from None
+            if plan.deliverable!=expected:raise AppError('dsh.deliverable_mismatch','A+ and Listing use separate tools and specifications',422)
             if plan.creative_strategy.research_basis=='verified_mcp':
                 from app.agents.amazon_research import receipts
                 known={r['id'] for r in await receipts(db,conv) if r.get('data_available')}
@@ -451,7 +451,6 @@ async def tool(value:dict,db:AsyncSession=Depends(get_db_session)):
             for evidence in facts:
                 if evidence.basis=='user_confirmed' and (not evidence.source_quote or not any(evidence.source_quote in s for s in source_texts)):
                     raise AppError('dsh.fact_quote_invalid','A user-confirmed fact needs an exact authenticated user quotation',422)
-            if plan.deliverable!=expected:raise AppError('dsh.deliverable_mismatch','A+ and Listing use separate tools and specifications',422)
             # Full professional validation runs before any generation or approval.
             errors=amazon.findings(plan)
             if plan.deliverable=='aplus':

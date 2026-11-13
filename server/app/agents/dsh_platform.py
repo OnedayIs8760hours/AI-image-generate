@@ -11,6 +11,14 @@ from app.models.hermes_agent import HermesMessage
 from app.agents.adapters import chat
 from app.experiments.dsh import native
 
+
+_OLD_CALL_LIMIT = 'Native Session call budget reached'
+_OLD_DESIGN_ERRORS = {
+    'narrative.reason_ids must reference existing purchase reason ids': '图片模块须关联已有购买理由 ID。',
+    'all public purchase reasons must be mapped to modules, not necessarily one-to-one': '有公开购买理由未关联到图片模块。',
+}
+
+
 async def controller(db):
     if not dsh_settings.enabled():return 'langgraph'
     row=await db.get(AgentControllerSetting,'default')
@@ -106,6 +114,20 @@ async def sync(db,run,principal):
             if a['id'] in run.selection_json.get('attachment_ids',[]):
                 m=await db.get(HermesMessage,a['id']);m.metadata_json={**m.metadata_json,'submitted':True}
     with native.connection() as c:model_jobs=c.execute('SELECT job FROM model_jobs WHERE turn_id=? ORDER BY created DESC',(turn,)).fetchall()
+    if state=='failed' and _OLD_CALL_LIMIT in (detail.get('error') or ''):
+        # Existing runs written by the old controller keep their real tool error.
+        latest=next((e for e in reversed(detail.get('events',[])) if e['type'] in {'tool.error','tool.result'}
+            and e.get('name') not in {'load_skill','read_context','complete'}),{})
+        if latest.get('type')=='tool.error' and latest.get('error'):
+            message=latest['error']
+            for old,new in _OLD_DESIGN_ERRORS.items():
+                message=message.replace('Value error, '+old,new)
+            detail['error']=message
+            detail['error_code']=latest.get('code') or (
+                'dsh.design_invalid' if latest['error'].startswith('Error: 策划字段不完整') else 'dsh.tool_failed')
+        else:
+            detail['error']='本轮已达到模型调用次数上限，任务已停止。请查看本轮工具记录。'
+            detail['error_code']='dsh.session_call_limit'
     if state=='failed' and not detail.get('error_code'):
         from app.models.tasks import Job
         for value in model_jobs:
@@ -129,7 +151,9 @@ async def sync(db,run,principal):
     if reply:
         answer=result.get('answer')
         stage={'main_session':'正在理解需求','vision_session':'正在核对商品原图','executor_session':'正在应用专业 Skill 策划模块','interrupted':'会话已中断，保留原任务和付费回执，可恢复','failed':run.result_json.get('execution_error') or '任务中断，请查看调用记录'}
-        reply.content=answer if state not in {'main_session','vision_session','executor_session','accepted'} and answer else stage.get(state,answer or 'DSH 正在处理任务…')
+        reply.content=stage['failed'] if state=='failed' else (
+            answer if state not in {'main_session','vision_session','executor_session','accepted'} and answer
+            else stage.get(state,answer or 'DSH 正在处理任务…'))
     await db.commit()
 
 async def resume(db,run,principal):

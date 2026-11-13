@@ -69,7 +69,7 @@ class CreativeStrategyV2(CreativeStrategy):
     concept:CreativeConceptV2
 
 class ModuleNarrative(StrictModel):
-    reason_ids:list[str]=Field(min_length=1,max_length=5)
+    reason_ids:list[str]=Field(min_length=1,max_length=5,description='IDs from creative_strategy.purchase_reasons, not evidence IDs. Select the reasons this image actually communicates.')
     story_beat:str=Field(min_length=3,max_length=150)
     shot_purpose:str=Field(min_length=5,max_length=250)
     treatment:Literal['photography','detail','lifestyle','native_infographic','brand_visual']
@@ -80,11 +80,13 @@ def validate_mapping(strategy,modules,evidence_ids,*,compiled=True):
         if set(r.evidence_ids)-set(evidence_ids):raise ValueError('purchase reasons must cite existing own-product facts')
     used=set()
     for m in modules:
-        if not m.narrative or set(m.narrative.reason_ids)-reasons.keys():raise ValueError(f'{m.id}: narrative.reason_ids must reference existing purchase reason ids')
+        if not m.narrative or set(m.narrative.reason_ids)-reasons.keys():
+            raise ValueError(f'{m.id}: 图片模块须关联已有购买理由 ID。')
         used.update(m.narrative.reason_ids)
         linked={e for rid in m.narrative.reason_ids for e in reasons[rid].evidence_ids}
         if compiled and not linked<=set(m.evidence_ids):raise ValueError(f'{m.id}: compiled module is missing purchase reason facts')
-    if {r.id for r in reasons.values() if r.presentation!='internal_only'}-used:raise ValueError('all public purchase reasons must be mapped to modules, not necessarily one-to-one')
+    if {r.id for r in reasons.values() if r.presentation!='internal_only'}-used:
+        raise ValueError('有公开购买理由未关联到图片模块。')
 
 class QualityFinding(StrictModel):
     output_ids:list[str]=Field(min_length=1,max_length=10)

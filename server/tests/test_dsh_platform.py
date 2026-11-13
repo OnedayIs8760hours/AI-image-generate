@@ -73,17 +73,27 @@ async def test_native_lost_worker_is_not_safe_to_resend():
     job=SimpleNamespace(input_json={'metadata':{'dsh_native':True}},status='failed',error_code='job.worker_lost')
     assert await upstream_unknown(None,job) is True
 
-async def test_model_failure_uses_the_real_code_and_human_message(agent_context,monkeypatch):
+@pytest.mark.parametrize(('error_code','error','events','expected_code','expected_message'),[
+    ('experiment.budget_exhausted','验收调用次数已达上限，本次未发送上游请求。',[],
+     'experiment.budget_exhausted','验收调用次数已达上限，本次未发送上游请求。'),
+    (None,'Error: Native Session call budget reached; inspect the original receipt before further action',
+     [{'type':'tool.error','name':'produce_listing','error':'Error: 策划字段不完整：brief: Value error, all public purchase reasons must be mapped to modules, not necessarily one-to-one'}],
+     'dsh.design_invalid','策划字段不完整：brief: 有公开购买理由未关联到图片模块。'),
+])
+async def test_model_failure_uses_the_real_code_and_human_message(
+    agent_context,monkeypatch,error_code,error,events,expected_code,expected_message,
+):
     ctx=agent_context;monkeypatch.setenv('DSH_ENABLED','true')
     settings=ctx['settings'].model_copy(update={'agent_control_writes_enabled':True,'agent_control_model_calls_enabled':True})
     ctx['app'].dependency_overrides[get_settings]=lambda:settings
     async def intake(p,principal):return {'state':'accepted'}
-    async def status(id,principal):return {'state':'failed','answer':'','native':{'state':'failed','error_code':'experiment.budget_exhausted','error':'验收调用次数已达上限，本次未发送上游请求。','events':[]}}
+    async def status(id,principal):
+        return {'state':'failed','answer':'之前的任务确认','native':{'state':'failed','error_code':error_code,'error':error,'events':events}}
     monkeypatch.setattr(dsh_platform.native,'intake',intake);monkeypatch.setattr(dsh_platform.native,'status',status)
     url='/api/v1/agent/conversations/'+ctx['conversation']['id']+'/messages'
     response=await ctx['client'].post(url,json={'content':'测试模型失败显示','chat_mode':True,'client_request_id':'native-error-message-v1'},headers=ctx['headers'])
     assert response.status_code==200,response.text
     response=await ctx['client'].get('/api/v1/agent/runs/'+response.json()['id'],headers=ctx['headers'])
     assert response.status_code==200,response.text
-    assert response.json()['error_code']=='experiment.budget_exhausted'
-    assert response.json()['result']['execution_error']=='验收调用次数已达上限，本次未发送上游请求。'
+    assert response.json()['error_code']==expected_code
+    assert response.json()['result']['execution_error']==expected_message

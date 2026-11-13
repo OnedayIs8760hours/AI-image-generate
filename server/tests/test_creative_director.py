@@ -2,7 +2,7 @@
 from copy import deepcopy
 import pytest
 from pydantic import ValidationError
-from app.agents.amazon_brief import SaveDirectorAPlus,normalize_arguments
+from app.agents.amazon_brief import SaveDirectorAPlus,SaveDirectorListing,expand,normalize_arguments
 from app.agents.amazon_contracts import APlusPlan
 from app.agents import amazon,professional_prompts
 from app.experiments.dsh.ledger import Ledger
@@ -53,6 +53,29 @@ def test_director_listing_uses_its_own_art_language_without_clothing_direction()
     p=APlusPlan.model_validate(normalize_arguments({'brief':b})['plan'])
     assert not amazon.findings(p)
     assert 'COMPANY DESIGN DIRECTION:' not in professional_prompts.aplus(p,p.modules[0])
+
+@pytest.mark.parametrize('reason_ids', [['r1', 'r2'], ['p1'], ['r1', 'p1']])
+def test_single_listing_binds_only_supported_reasons_without_another_model_round(reason_ids):
+    brief=director()
+    brief['deliverable']='listing'
+    brief.pop('design_version')
+    brief.pop('suite_rationale')
+    module=brief['modules'][0]
+    brief['modules']=[module]
+    module.update(spec_id='listing_square',image_slots=[])
+    module['narrative']['reason_ids']=reason_ids
+    for reason in brief['creative_strategy']['purchase_reasons'][2:]:
+        reason['evidence_ids']=['p2']
+    original=deepcopy(brief)
+    plan=expand(SaveDirectorListing(brief=brief).brief)
+    assert brief==original
+    assert plan.modules[0].narrative.reason_ids==['r1','r2']
+    assert plan.modules[0].evidence_ids==['p1']
+    assert [r.presentation for r in plan.creative_strategy.purchase_reasons[2:]]==['internal_only']*3
+    assert not amazon.findings(plan)
+    module['narrative']['reason_ids']=['unowned-fact']
+    with pytest.raises(ValidationError,match='未知 ID'):
+        SaveDirectorListing(brief=brief)
 
 def test_compiler_inherits_reason_facts_without_another_model_round():
     b=director();b['creative_strategy']['purchase_reasons'][0]['evidence_ids']=['p1','p2']

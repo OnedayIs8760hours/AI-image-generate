@@ -28,6 +28,9 @@ const aplusPrompt=`你是 DSH 的 A+ 创意 Executor。用当前工具 schema �
 选一个由商品独有轮廓、图形或动作衍生的创意机制。先分配每模块的购买问题和镜头尺度，再写槽位，避免不同模块反复证明同一个细节。framing 用一句话写主体位置、占比、动作及画面关系，variation 说明与相邻槽位的区别。不要在各字段重述同一信息。图外原生标题和正文直接填 headline/body，摄影画面充分占用图幅，不给图外文案预留空白。确切 Logo、小字、号码用 source_crop 指向已授权原图，按目标画幅取景并保护完整字形。主视觉如需显示精确印字也采用原图；新场景可让印字自然朝外侧或被实物遮挡，不能在画面里伪造字形。
 每个模块的 headline 先表达顾客为什么在意，body 用一至两句把这个价值与画面可见证据连接，避免只复述画面或标题。copy_style 在同一次提交选择字体、标题大小、深浅底和取自商品的色值。首屏用 display 建立主题，其余按阅读目的变化，证据图用 section 和清楚的短标题。图文位置遵循模块规格，独立排版不会更改商品原印字或送进生图模型。
 按模块规格的槽位顺序提交 shots，编译器分配槽位 ID、继承事实并编译原生排版和最终 Prompt。用户仅审方案时调用 save_design，直接出图时调用 produce_aplus。按用户要求的模块数及可用规格完成整套，成功后停止。`;
+const listingPrompt=`你是 DSH 的 Listing 商品图 Executor。当前消息已绑定完整 Skill 与商品上下文，直接使用。用户只要一张时提交一个 listing_square 模块。根据真实可见商品事实选构图和购买理由，不能虚构材质、功能或授权。
+每个模块的 evidence_ids 引用商品事实 ID。narrative.reason_ids 引用 creative_strategy.purchase_reasons 的购买理由 ID。单张图只选它实际表达的卖点；额外购买理由标为 internal_only。提交 1 到 5 条真实理由，够用即可。版式和用词遵循当前工具 schema 与用户要求。
+只审方案用 save_listing，直接出图用 produce_listing，成功后停止。确有竞品研究需要时使用已批准且已列出的 MCP 工具，未知状态不要重发。`;
 
 export async function createNativeController(root,core,token){
   const db=new DatabaseSync(resolve(root,'native-control.sqlite'));
@@ -41,10 +44,19 @@ export async function createNativeController(root,core,token){
   };
   const runtime=await createNativeRuntime(resolve(root,'native'),async(_,o)=>{
     const c=current.get(o.sessionId);if(!c)throw Error('Session has no authenticated turn');
-    const n=(counts.get(o.sessionId)||0)+1;counts.set(o.sessionId,n);
-    const ceiling=c.role==='main'?2:c.role==='quality'||c.role==='vision'?1:read(c.x.id).decision?.needs_research?3:2;
-    if(n>ceiling)throw Error('Native Session call budget reached; inspect the original receipt before further action');
-    return call('model',{turn:c.x.id,role:c.role,options:o,replay_known:n===1&&(read(c.x.id).recovery_count||0)>0});
+    const n=(counts.get(o.sessionId)||0)+1;
+    const turn=read(c.x.id);
+    const ceiling=c.role==='main'?2:c.role==='quality'||c.role==='vision'?1:turn.decision?.needs_research?3:2;
+    if(n>ceiling){
+      const last=c.role==='executor'&&turn.events?.findLast(e=>e.session===o.sessionId&&['tool.result','tool.error'].includes(e.type)
+        &&!['load_skill','read_context','complete'].includes(e.name));
+      if(last?.type==='tool.error'){
+        throw Object.assign(new Error(last.error.replace(/^Error: /,'')),{code:last.code||'dsh.tool_failed'});
+      }
+      throw Object.assign(new Error('本轮已达到模型调用次数上限，任务已停止。请查看本轮工具记录。'),{code:'dsh.session_call_limit'});
+    }
+    counts.set(o.sessionId,n);
+    return call('model',{turn:c.x.id,role:c.role,options:o,replay_known:n===1&&(turn.recovery_count||0)>0});
   });
   runtime.ctx.on('agent/pre-step',async({agent},next)=>terminal.has(agent.id)?{kind:'reject'}:next());
   runtime.ctx.on('agent/request',async({agent},next)=>{
@@ -60,6 +72,7 @@ export async function createNativeController(root,core,token){
   async function run(x,releaseMain=()=>{}){
     running.add(x.id);const started=performance.now();
     let releaseExecutor=()=>{};
+    let executorId;
     try{
       save(x.id,{error:null,error_code:null});
       if(!read(x.id).decision){
@@ -123,12 +136,16 @@ export async function createNativeController(root,core,token){
       }
       const assignment=core.repo.tickets.get(intake.ticket).assignments.at(-1).id;
       const eid='executor-'+hash([x.org,x.user,intake.ticket,assignment,modelForRole('executor')]);
+      executorId=eid;
       current.set(eid,{x,role:'executor'});terminal.delete(eid);counts.set(eid,0);
       const allowed=new Set(['load_skill','read_context','complete',
         ...(decision.executor==='research'?[]:decision.executor==='image_edit'?(prep.context.amazon_plans?.length?['revise_visual']:['create_images']):decision.executor==='batch_images'?['create_images']:
           decision.action==='continue'&&prep.context.amazon_plans?.length?['revise_visual','revise_and_generate','generate']:[decision.executor==='listing'?'produce_listing':'produce_aplus'])]);
       if(decision.plan_only){for(const name of ['produce_aplus','produce_listing','generate','create_images','revise_visual','revise_and_generate'])allowed.delete(name);allowed.add(decision.executor==='listing'?'save_listing':'save_design');}
       if(x.selection?.target_image?.amazon_module)allowed.delete('revise_and_generate');
+      const firstPass=allowed.has('save_design')||allowed.has('produce_aplus');
+      const listingFirstPass=allowed.has('save_listing')||allowed.has('produce_listing');
+      if(firstPass||listingFirstPass){allowed.delete('load_skill');allowed.delete('read_context');}
       const tools=prep.catalog.filter(t=>allowed.has(t.name)||decision.needs_research&&t.name.startsWith('mcp_')&&['amazon_aplus','listing','research'].includes(decision.executor)&&(!['amazon_aplus','listing'].includes(decision.executor)||t.name.endsWith('asin_detail')||t.name.endsWith('asin_content_list'))).map(t=>({...t,execute:async(args,execution)=>{
         const {x}=current.get(eid);
         const proposed=args.expected_revision;args=bindPlanSnapshot(t.name,args,prep.context);
@@ -145,10 +162,9 @@ export async function createNativeController(root,core,token){
             terminal.add(eid);save(x.id,{answer:`已提交 ${result.job_ids?.length||0} 张独立图片任务${result.source_crop_count?`，另有 ${result.source_crop_count} 个槽位复用商品原图`:""}，现有Worker正在并发生成。`});
           }
           return result;
-        }catch(error){record(x.id,'tool.error',{name:t.name,error:String(error)});return {error:String(error)};}
+        }catch(error){record(x.id,'tool.error',{session:eid,name:t.name,error:String(error),code:error.code||null});return {error:String(error)};}
       }}));
-      const firstPass=tools.some(t=>['save_design','produce_aplus'].includes(t.name));
-      const boundPrompt=firstPass ? aplusPrompt : executorPrompt+'\n完整获准Skill已绑定，直接使用正文。Listing 策划用 produce_listing，仅审方案用 save_listing。已有方案按用户要求调用 generate，局部修改用 revise_visual。工具成功无需追加模型确认。';
+      const boundPrompt=firstPass ? aplusPrompt : listingFirstPass ? listingPrompt : executorPrompt+'\n完整获准Skill已绑定，直接使用正文。已有方案按用户要求调用 generate，局部修改用 revise_visual。工具成功无需追加模型确认。';
       const executor=await runtime.ensure(eid,modelForRole('executor'),boundPrompt,tools);
       record(x.id,'engine.assignment',core.sessionStarted(x,intake.ticket,eid));
       save(x.id,{state:'executor_session',assignment,executor_session:eid,executor:decision.executor,conversation:prep.conversation,run:prep.run});
@@ -170,7 +186,8 @@ export async function createNativeController(root,core,token){
       if(!terminal.has(eid))throw Error('Executor ended without complete; inspect native session log');
       const value=read(x.id),submissions=value.events?.filter(e=>e.type==='tool.result'&&['generate','create_images','produce_aplus','produce_listing','revise_and_generate','revise_visual'].includes(e.name));
       save(x.id,{state:submissions?.length?(submissions.some(e=>e.result?.job_ids?.length)?'submitted':'completed'):'needs_input',executor_calls:counts.get(eid)});
-    }catch(error){save(x.id,{state:'failed',error:String(error),error_code:error.code||null});runtime.trace('turn.error',{turn:x.id,error:String(error),code:error.code||null});}
+    }catch(error){save(x.id,{state:'failed',error:String(error),error_code:error.code||null,
+      ...(executorId&&{executor_calls:counts.get(executorId)})});runtime.trace('turn.error',{turn:x.id,error:String(error),code:error.code||null});}
     finally{releaseMain();releaseExecutor();save(x.id,{seconds:(performance.now()-started)/1000});running.delete(x.id);}
   }
   function intake(x){

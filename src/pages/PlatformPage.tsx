@@ -29,7 +29,7 @@ export function DashboardPage() {
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-gray-300 backdrop-blur"><SparklesIcon className="h-4 w-4" />AI 电商创作助手</div>
         <h1 className="mt-5 text-3xl font-semibold tracking-[-0.04em] text-white sm:text-4xl">今天想创作什么图片？</h1>
         <p className="mt-3 max-w-xl text-sm leading-6 text-gray-400">从一个想法开始，让 Agent 帮你理解素材、调度工具并完成电商图片生产。</p>
-        <Link to={appRoutes.agentControl} className="mt-7 inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-gray-950 transition hover:bg-gray-200">开始创作<ArrowUpIcon className="h-4 w-4 rotate-45" /></Link>
+        <Link to={runtimeConfig.isStandalone ? appRoutes.legacyListing : appRoutes.agentControl} className="mt-7 inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-gray-950 transition hover:bg-gray-200">开始创作<ArrowUpIcon className="h-4 w-4 rotate-45" /></Link>
       </div>
       <img src={`${import.meta.env.BASE_URL}creative-assets/scene-creative.png`} alt="创意场景示例" className="absolute inset-y-0 right-0 hidden h-full w-[46%] object-cover opacity-70 [mask-image:linear-gradient(to_right,transparent,black_45%)] md:block" />
     </section>
@@ -37,7 +37,7 @@ export function DashboardPage() {
     <section className="mt-9">
       <div className="mb-4 flex items-end justify-between"><div><h2 className="text-lg font-semibold tracking-tight">专业创作工具</h2><p className="mt-1 text-xs text-gray-500">选择适合当前任务的工作台，所有项目与生成记录会继续保留。</p></div><span className="hidden text-xs text-gray-500 sm:inline">{runtimeConfig.isStandalone ? '本地创作空间' : '团队协作空间'}</span></div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {workspaceCards.map((card) => <Link key={card.path} to={card.path} className="lovart-image-card group">
+        {workspaceCards.map((card) => <Link key={card.path} to={runtimeConfig.isStandalone && card.path === appRoutes.attachmentImages ? appRoutes.legacyListing : card.path} className="lovart-image-card group">
           <div className={`aspect-[1.65] overflow-hidden ${card.contain ? 'bg-[#eeeeeb] p-7' : 'bg-[#242424]'}`}><img src={`${import.meta.env.BASE_URL}creative-assets/${card.image}`} alt={`${card.title}示例`} className={`h-full w-full ${card.contain ? 'object-contain' : 'object-cover'}`} /></div>
           <div className="flex items-center justify-between p-4"><div><h3 className="text-sm font-semibold text-gray-100">{card.title}</h3><p className="mt-1 text-xs text-gray-500">{card.description}</p></div><ArrowUpIcon className="h-4 w-4 rotate-45 text-gray-600 transition group-hover:text-white" /></div>
         </Link>)}

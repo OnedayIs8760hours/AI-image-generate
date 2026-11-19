@@ -53,7 +53,7 @@ function AppRoutes() {
       <Route element={<ProtectedRoutes />}>
         <Route path={appRoutes.changePassword} element={<ChangePasswordPage />} />
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to={appRoutes.attachmentImages} replace />} />
+          <Route index element={<Navigate to={runtimeConfig.isStandalone ? appRoutes.legacyListing : appRoutes.attachmentImages} replace />} />
           <Route path={appRoutes.dashboard} element={<DashboardPage />} />
           <Route path={appRoutes.skills} element={<CreativeSkillsPage />} />
           <Route path={appRoutes.tools} element={<AIToolsPage />} />
@@ -61,12 +61,12 @@ function AppRoutes() {
           <Route path={appRoutes.designBrief} element={<DesignBriefPage />} />
           <Route path={appRoutes.agentControl} element={<AgentControlWorkspace />} />
           <Route path={appRoutes.listing} element={<Navigate to={appRoutes.attachmentImages} replace />} />
-          <Route path={appRoutes.attachmentImages} element={<AttachmentImageWorkbenchPage />} />
-          <Route path={appRoutes.attachmentImageWorkbench} element={<AttachmentImageWorkbenchPage />} />
+          <Route path={appRoutes.attachmentImages} element={runtimeConfig.isStandalone ? <Navigate to={appRoutes.legacyListing} replace /> : <AttachmentImageWorkbenchPage />} />
+          <Route path={appRoutes.attachmentImageWorkbench} element={runtimeConfig.isStandalone ? <Navigate to={appRoutes.legacyListing} replace /> : <AttachmentImageWorkbenchPage />} />
           <Route path={appRoutes.listingQuick} element={<QuickListingGenerationPage />} />
           <Route path={appRoutes.listingQuickProgress} element={<QuickListingGenerationPage />} />
           <Route path={appRoutes.smartImageVariationHub} element={<SmartImageVariationHubPage />} />
-          <Route path={appRoutes.legacyListing} element={<Navigate to={appRoutes.attachmentImages} replace />} />
+          <Route path={appRoutes.legacyListing} element={<ListingWorkspacePage legacy />} />
           <Route path={appRoutes.listingWorkbench} element={<ListingWorkspacePage />} />
           <Route path={appRoutes.listingOutputSelect} element={<ListingOutputSelectionPage />} />
           <Route path={appRoutes.listingImageWorkbench} element={<LegacyListingImageRedirect />} />

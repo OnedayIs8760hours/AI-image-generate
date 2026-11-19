@@ -1,10 +1,14 @@
 # 亚马逊图片工作台
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-ai.philister.icu-2563eb)](https://ai.philister.icu/)
+
 亚马逊图片工作台是一个面向 Amazon Listing 的产品图片策划与生成工作台，基于 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground) 修改。
 
 它适合用来把产品标题、五点描述、卖点文案和参考图，整理成 Amazon Listing 图片或 A+ Content 图片策划，并逐张生成图片。
 
-项目仓库：[Ali-Aria/amazon-image-studio](https://github.com/Ali-Aria/amazon-image-studio)
+项目仓库：[OnedayIs8760hours/AI-image-generate](https://github.com/OnedayIs8760hours/AI-image-generate)（上游：[Ali-Aria/amazon-image-studio](https://github.com/Ali-Aria/amazon-image-studio)）
+
+在线演示：[https://ai.philister.icu/](https://ai.philister.icu/)
 
 ## 开源说明
 
@@ -107,7 +111,7 @@
 
 ## 在线体验
 
-- 体验地址：[https://ali-aria.github.io/amazon-image-studio/](https://ali-aria.github.io/amazon-image-studio/)
+- 体验地址：[https://ai.philister.icu/](https://ai.philister.icu/)
 - 打开在线体验不需要 Codex；Codex 只是一种可选的本地安装方式。
 - 在线体验不会内置 API Key；生成图片和 AI 策划都需要在右上角设置中填写你自己的 OpenAI 或兼容接口 Key。
 - API Key 保存在当前浏览器本地，不会提交到仓库；如果线上页面加载异常，也可以按下面的“启动项目”在本地运行。
@@ -421,7 +425,7 @@ Node.js version: 20
 当前仓库的 GitHub Pages 体验地址：
 
 ```text
-https://ali-aria.github.io/amazon-image-studio/
+https://ai.philister.icu/
 ```
 
 ### Cloudflare Pages

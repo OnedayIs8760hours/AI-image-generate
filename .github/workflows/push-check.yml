@@ -1,0 +1,7 @@
+﻿name: push-check
+on: push
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo push-ok
